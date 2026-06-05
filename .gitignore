@@ -43,3 +43,32 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Flutter/Dart generated files (local machine specific)
+.flutter-plugins
+.flutter-plugins-dependencies
+/android/local.properties
+/ios/Flutter/Generated.xcconfig
+/ios/Flutter/flutter_export_environment.sh
+
+# Environment variables & secrets
+.env
+.env.*
+*.env
+android/key.properties
+
+# Signing files & Keystores (highly sensitive)
+*.jks
+*.keystore
+*.p12
+*.pem
+*.der
+*.key
+
+# Firebase config files (optional to ignore, uncomment if you want to keep firebase details private)
+# android/app/google-services.json
+# ios/Runner/GoogleService-Info.plist
+
+# VS Code settings
+.vscode/
+
