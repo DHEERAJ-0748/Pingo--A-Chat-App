@@ -1,0 +1,80 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // -------------------------------------------------------------------------
+    // Users collection
+    // -------------------------------------------------------------------------
+    match /users/{uid} {
+      // Any user can read any profile (needed for signup availability check and search)
+      allow read: if true;
+
+      // Only the owner can create their own document
+      allow create: if request.auth != null
+        && request.auth.uid == uid;
+
+      // Only the owner can update their own profile
+      allow update: if request.auth != null
+        && request.auth.uid == uid;
+
+      // No deletions allowed
+      allow delete: if false;
+    }
+
+    // -------------------------------------------------------------------------
+    // Chats collection
+    // -------------------------------------------------------------------------
+    match /chats/{chatId} {
+      // Helper function: is the requesting user a participant?
+      function isParticipant(data) {
+        return request.auth != null
+          && request.auth.uid in data.participants;
+      }
+
+      // Read: only participants can see the chat document (allows checking if a chat exists)
+      allow read: if request.auth != null
+        && (resource == null || request.auth.uid in resource.data.participants);
+
+      // Create: allowed if auth user is in the new participants list
+      allow create: if request.auth != null
+        && request.auth.uid in request.resource.data.participants
+        && request.resource.data.participants.size() == 2;
+
+      // Update: only participants can update (e.g. lastMessage)
+      allow update: if isParticipant(resource.data);
+
+      // Delete: not allowed
+      allow delete: if false;
+
+      // -----------------------------------------------------------------------
+      // Messages subcollection
+      // -----------------------------------------------------------------------
+      match /messages/{messageId} {
+        // Helper: look up parent chat's participants
+        function chatParticipants() {
+          return get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
+        }
+
+        // Read: only chat participants can read messages
+        allow read: if request.auth != null
+          && request.auth.uid in chatParticipants();
+
+        // Create: participants can send messages; sender must be the auth user
+        allow create: if request.auth != null
+          && request.auth.uid in chatParticipants()
+          && request.resource.data.senderId == request.auth.uid
+          && request.resource.data.text is string
+          && request.resource.data.text.size() > 0
+          && request.resource.data.text.size() <= 5000;
+
+        // Update: allowed for participants if they only modify 'read' or 'hiddenForUsers'
+        allow update: if request.auth != null
+          && request.auth.uid in chatParticipants()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read', 'hiddenForUsers']);
+
+        // Delete: not allowed
+        allow delete: if false;
+      }
+    }
+  }
+}
