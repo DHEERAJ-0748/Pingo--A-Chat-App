@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/auth_service.dart';
 import '../services/firestore_service.dart';
+import '../services/notification_service.dart';
 import '../repositories/auth_repository.dart';
 import '../models/user_model.dart';
 import 'user_provider.dart';
@@ -52,4 +53,8 @@ final currentUserProvider = FutureProvider<UserModel?>((ref) async {
     loading: () => null,
     error: (_, _) => null,
   );
+});
+
+final notificationServiceProvider = Provider<NotificationService>((ref) {
+  return NotificationService(ref);
 });

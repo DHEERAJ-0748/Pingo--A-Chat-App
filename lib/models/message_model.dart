@@ -9,6 +9,11 @@ class MessageModel {
   final DateTime timestamp;
   final bool read;
   final List<String> hiddenForUsers;
+  final String? replyToMessageId;
+  final String? replyToText;
+  final String? replyToSenderId;
+  final bool isDeletedForEveryone;
+  final DateTime? deletedAt;
 
   const MessageModel({
     required this.id,
@@ -18,6 +23,11 @@ class MessageModel {
     required this.timestamp,
     required this.read,
     this.hiddenForUsers = const [],
+    this.replyToMessageId,
+    this.replyToText,
+    this.replyToSenderId,
+    this.isDeletedForEveryone = false,
+    this.deletedAt,
   });
 
   factory MessageModel.fromMap(Map<String, dynamic> map, String docId) {
@@ -31,6 +41,13 @@ class MessageModel {
       hiddenForUsers: map[FirestoreConstants.hiddenForUsers] != null
           ? List<String>.from(map[FirestoreConstants.hiddenForUsers] as List)
           : const [],
+      replyToMessageId: map[FirestoreConstants.replyToMessageId] as String?,
+      replyToText: map[FirestoreConstants.replyToText] as String?,
+      replyToSenderId: map[FirestoreConstants.replyToSenderId] as String?,
+      isDeletedForEveryone: map[FirestoreConstants.isDeletedForEveryone] as bool? ?? false,
+      deletedAt: map[FirestoreConstants.deletedAt] != null
+          ? (map[FirestoreConstants.deletedAt] as Timestamp).toDate()
+          : null,
     );
   }
 
@@ -42,6 +59,11 @@ class MessageModel {
       FirestoreConstants.timestamp: Timestamp.fromDate(timestamp),
       FirestoreConstants.read: read,
       FirestoreConstants.hiddenForUsers: hiddenForUsers,
+      FirestoreConstants.replyToMessageId: replyToMessageId,
+      FirestoreConstants.replyToText: replyToText,
+      FirestoreConstants.replyToSenderId: replyToSenderId,
+      FirestoreConstants.isDeletedForEveryone: isDeletedForEveryone,
+      FirestoreConstants.deletedAt: deletedAt != null ? Timestamp.fromDate(deletedAt!) : null,
     };
   }
 

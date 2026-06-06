@@ -9,6 +9,8 @@ class ChatModel {
   final DateTime? lastMessageTime;
   final Map<String, int> unreadCount;
   final Map<String, bool> typingStatus;
+  final List<String> deletedForUsers;
+  final Map<String, DateTime> deletedAtForUsers;
 
   const ChatModel({
     required this.chatId,
@@ -18,6 +20,8 @@ class ChatModel {
     this.lastMessageTime,
     this.unreadCount = const {},
     this.typingStatus = const {},
+    this.deletedForUsers = const [],
+    this.deletedAtForUsers = const {},
   });
 
   factory ChatModel.fromMap(Map<String, dynamic> map, String docId) {
@@ -35,6 +39,14 @@ class ChatModel {
       typingStatus: map[FirestoreConstants.typingStatus] != null
           ? Map<String, bool>.from(map[FirestoreConstants.typingStatus] as Map)
           : const {},
+      deletedForUsers: map[FirestoreConstants.deletedForUsers] != null
+          ? List<String>.from(map[FirestoreConstants.deletedForUsers] as List)
+          : const [],
+      deletedAtForUsers: map[FirestoreConstants.deletedAtForUsers] != null
+          ? (map[FirestoreConstants.deletedAtForUsers] as Map).map(
+              (k, v) => MapEntry(k as String, (v as Timestamp).toDate()),
+            )
+          : const {},
     );
   }
 
@@ -47,6 +59,10 @@ class ChatModel {
           lastMessageTime != null ? Timestamp.fromDate(lastMessageTime!) : null,
       FirestoreConstants.unreadCount: unreadCount,
       FirestoreConstants.typingStatus: typingStatus,
+      FirestoreConstants.deletedForUsers: deletedForUsers,
+      FirestoreConstants.deletedAtForUsers: deletedAtForUsers.map(
+        (k, v) => MapEntry(k, Timestamp.fromDate(v)),
+      ),
     };
   }
 
@@ -58,6 +74,8 @@ class ChatModel {
     DateTime? lastMessageTime,
     Map<String, int>? unreadCount,
     Map<String, bool>? typingStatus,
+    List<String>? deletedForUsers,
+    Map<String, DateTime>? deletedAtForUsers,
   }) {
     return ChatModel(
       chatId: chatId ?? this.chatId,
@@ -67,6 +85,8 @@ class ChatModel {
       lastMessageTime: lastMessageTime ?? this.lastMessageTime,
       unreadCount: unreadCount ?? this.unreadCount,
       typingStatus: typingStatus ?? this.typingStatus,
+      deletedForUsers: deletedForUsers ?? this.deletedForUsers,
+      deletedAtForUsers: deletedAtForUsers ?? this.deletedAtForUsers,
     );
   }
 

@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/chat_model.dart';
 import '../models/message_model.dart';
@@ -21,7 +23,18 @@ class ChatRepository {
     );
 
     if (existing != null) {
-      return ChatModel.fromMap(existing, chatId);
+      final chat = ChatModel.fromMap(existing, chatId);
+      if (chat.deletedForUsers.contains(uidA)) {
+        await _firestoreService.db
+            .collection(FirestoreConstants.chatsCollection)
+            .doc(chatId)
+            .update({
+          FirestoreConstants.deletedForUsers: FieldValue.arrayRemove([uidA]),
+        });
+        final updatedDeletedFor = List<String>.from(chat.deletedForUsers)..remove(uidA);
+        return chat.copyWith(deletedForUsers: updatedDeletedFor);
+      }
+      return chat;
     }
 
     // Create new chat document
@@ -65,11 +78,15 @@ class ChatRepository {
 
   /// Sends a message to [chatId]'s messages subcollection
   /// and updates the chat's lastMessage, lastMessageTime, unreadCount, and typingStatus.
+  /// Sends an async push notification to the receiver if their FCM token exists.
   Future<void> sendMessage({
     required String chatId,
     required String senderId,
     required String receiverId,
     required String text,
+    String? replyToMessageId,
+    String? replyToText,
+    String? replyToSenderId,
   }) async {
     final now = DateTime.now();
     final message = MessageModel(
@@ -80,6 +97,11 @@ class ChatRepository {
       timestamp: now,
       read: false,
       hiddenForUsers: const [],
+      replyToMessageId: replyToMessageId,
+      replyToText: replyToText,
+      replyToSenderId: replyToSenderId,
+      isDeletedForEveryone: false,
+      deletedAt: null,
     );
 
     final batch = _firestoreService.db.batch();
@@ -103,9 +125,31 @@ class ChatRepository {
       FirestoreConstants.lastMessageTime: Timestamp.fromDate(now),
       'unreadCount.$receiverId': FieldValue.increment(1),
       'typingStatus.$senderId': false,
+      FirestoreConstants.deletedForUsers: FieldValue.arrayRemove([senderId, receiverId]),
     });
 
     await batch.commit();
+
+    // Trigger async push notification sending
+    _firestoreService.getDoc(FirestoreConstants.usersCollection, receiverId).then((receiverDoc) {
+      if (receiverDoc == null) return;
+      final token = receiverDoc[FirestoreConstants.fcmToken] as String?;
+      if (token == null || token.isEmpty) return;
+
+      _firestoreService.getDoc(FirestoreConstants.usersCollection, senderId).then((senderDoc) {
+        final senderName = senderDoc != null
+            ? (senderDoc[FirestoreConstants.displayName] as String? ?? 'New Message')
+            : 'New Message';
+
+        _sendPushNotification(
+          fcmToken: token,
+          senderName: senderName,
+          text: text.trim(),
+          chatId: chatId,
+          senderId: senderId,
+        );
+      });
+    });
   }
 
   /// Marks all unread messages in [chatId] sent to [userId] as read
@@ -157,6 +201,19 @@ class ChatRepository {
     });
   }
 
+  /// Deletes the chat for the specified user by adding their UID to deletedForUsers,
+  /// setting their deletion timestamp to now, and resetting their unread count to 0.
+  Future<void> deleteChatForMe(String chatId, String userId) async {
+    await _firestoreService.db
+        .collection(FirestoreConstants.chatsCollection)
+        .doc(chatId)
+        .update({
+      FirestoreConstants.deletedForUsers: FieldValue.arrayUnion([userId]),
+      '${FirestoreConstants.deletedAtForUsers}.$userId': FieldValue.serverTimestamp(),
+      '${FirestoreConstants.unreadCount}.$userId': 0,
+    });
+  }
+
   /// Real-time stream of messages in [chatId], ordered by timestamp ascending,
   /// filtering out messages hidden for [currentUid].
   Stream<List<MessageModel>> getMessagesStream(String chatId, String currentUid) {
@@ -174,5 +231,60 @@ class ChatRepository {
               .where((msg) => !msg.hiddenForUsers.contains(currentUid))
               .toList(),
         );
+  }
+
+  /// Deletes a message for everyone by marking it in Firestore.
+  Future<void> deleteMessageForEveryone(String chatId, String messageId) async {
+    await _firestoreService.db
+        .collection(FirestoreConstants.chatsCollection)
+        .doc(chatId)
+        .collection(FirestoreConstants.messagesSubcollection)
+        .doc(messageId)
+        .update({
+      FirestoreConstants.isDeletedForEveryone: true,
+      FirestoreConstants.deletedAt: FieldValue.serverTimestamp(),
+    });
+  }
+
+  /// Sends a push notification to FCM device-to-device via HTTP post.
+  Future<void> _sendPushNotification({
+    required String fcmToken,
+    required String senderName,
+    required String text,
+    required String chatId,
+    required String senderId,
+  }) async {
+    if (fcmToken.isEmpty) return;
+    if (FirestoreConstants.fcmServerKey == 'YOUR_FCM_SERVER_KEY') {
+      print('FCM Server Key is not configured. Skipping push notification.');
+      return;
+    }
+
+    try {
+      final response = await http.post(
+        Uri.parse('https://fcm.googleapis.com/fcm/send'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'key=${FirestoreConstants.fcmServerKey}',
+        },
+        body: jsonEncode({
+          'to': fcmToken,
+          'notification': {
+            'title': senderName,
+            'body': text,
+            'sound': 'default',
+          },
+          'data': {
+            'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+            'chatId': chatId,
+            'otherUserUid': senderId,
+          },
+          'priority': 'high',
+        }),
+      );
+      print('FCM notification request status: ${response.statusCode}');
+    } catch (e) {
+      print('Error sending FCM notification: $e');
+    }
   }
 }

@@ -67,10 +67,15 @@ service cloud.firestore {
           && request.resource.data.text.size() > 0
           && request.resource.data.text.size() <= 5000;
 
-        // Update: allowed for participants if they only modify 'read' or 'hiddenForUsers'
+        // Update: allowed for participants if they only modify 'read' or 'hiddenForUsers',
+        // or if the sender is marking the message as deleted for everyone.
         allow update: if request.auth != null
           && request.auth.uid in chatParticipants()
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read', 'hiddenForUsers']);
+          && (
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read', 'hiddenForUsers'])
+            || (resource.data.senderId == request.auth.uid
+                && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isDeletedForEveryone', 'deletedAt']))
+          );
 
         // Delete: not allowed
         allow delete: if false;

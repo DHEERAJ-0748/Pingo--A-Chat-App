@@ -22,12 +22,15 @@ void main() async {
   );
 }
 
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+
 class ChatApp extends StatelessWidget {
   const ChatApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: navigatorKey,
       title: 'ChatApp',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.darkTheme,

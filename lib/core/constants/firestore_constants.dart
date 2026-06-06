@@ -10,6 +10,7 @@ class FirestoreConstants {
   static const String displayName = 'displayName';
   static const String email = 'email';
   static const String createdAt = 'createdAt';
+  static const String fcmToken = 'fcmToken';
 
   // Chat fields
   static const String participants = 'participants';
@@ -17,6 +18,8 @@ class FirestoreConstants {
   static const String lastMessageTime = 'lastMessageTime';
   static const String unreadCount = 'unreadCount';
   static const String typingStatus = 'typingStatus';
+  static const String deletedForUsers = 'deletedForUsers';
+  static const String deletedAtForUsers = 'deletedAtForUsers';
 
   // Message fields
   static const String senderId = 'senderId';
@@ -25,4 +28,12 @@ class FirestoreConstants {
   static const String timestamp = 'timestamp';
   static const String read = 'read';
   static const String hiddenForUsers = 'hiddenForUsers';
+  static const String replyToMessageId = 'replyToMessageId';
+  static const String replyToText = 'replyToText';
+  static const String replyToSenderId = 'replyToSenderId';
+  static const String isDeletedForEveryone = 'isDeletedForEveryone';
+  static const String deletedAt = 'deletedAt';
+
+  // FCM Server Key (obtained from Firebase Console -> Project Settings -> Cloud Messaging)
+  static const String fcmServerKey = 'YOUR_FCM_SERVER_KEY';
 }

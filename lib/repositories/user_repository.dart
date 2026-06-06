@@ -39,4 +39,13 @@ class UserRepository {
       user.toMap(),
     );
   }
+
+  /// Update the FCM token for a user.
+  Future<void> updateFcmToken(String uid, String? token) async {
+    await _firestoreService.updateDoc(
+      FirestoreConstants.usersCollection,
+      uid,
+      {FirestoreConstants.fcmToken: token},
+    );
+  }
 }

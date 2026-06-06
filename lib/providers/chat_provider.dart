@@ -27,7 +27,9 @@ final chatsStreamProvider = StreamProvider<List<ChatModel>>((ref) {
   return authState.when(
     data: (user) {
       if (user == null) return const Stream.empty();
-      return ref.watch(chatRepositoryProvider).getChatsStream(user.uid);
+      return ref.watch(chatRepositoryProvider).getChatsStream(user.uid).map((chats) {
+        return chats.where((chat) => !chat.deletedForUsers.contains(user.uid)).toList();
+      });
     },
     loading: () => const Stream.empty(),
     error: (_, _) => const Stream.empty(),
@@ -42,7 +44,23 @@ final messagesStreamProvider =
     StreamProvider.family<List<MessageModel>, String>((ref, chatId) {
   final authState = ref.watch(authStateProvider);
   final uid = authState.value?.uid ?? '';
-  return ref.watch(chatRepositoryProvider).getMessagesStream(chatId, uid);
+  
+  final chatAsync = ref.watch(chatStreamProvider(chatId));
+  final messagesStream = ref.watch(chatRepositoryProvider).getMessagesStream(chatId, uid);
+
+  return chatAsync.when(
+    data: (chat) {
+      if (chat == null) return messagesStream;
+      final deletedAt = chat.deletedAtForUsers[uid];
+      if (deletedAt == null) return messagesStream;
+      
+      return messagesStream.map((messages) {
+        return messages.where((msg) => msg.timestamp.isAfter(deletedAt)).toList();
+      });
+    },
+    loading: () => const Stream.empty(),
+    error: (_, _) => const Stream.empty(),
+  );
 });
 
 // ---------------------------------------------------------------------------

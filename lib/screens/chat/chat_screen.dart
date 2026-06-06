@@ -31,6 +31,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   bool _isCurrentlyTyping = false;
   Timer? _typingTimer;
 
+  MessageModel? _replyingTo;
+
   @override
   void initState() {
     super.initState();
@@ -106,6 +108,29 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     });
   }
 
+  void _onReplyMessage(MessageModel msg) {
+    if (msg.isDeletedForEveryone) return;
+    setState(() {
+      _replyingTo = msg;
+    });
+  }
+
+  void _onReplyTap(String targetMessageId) {
+    ref.read(messagesStreamProvider(widget.chat.chatId)).whenData((messages) {
+      final index = messages.indexWhere((m) => m.id == targetMessageId);
+      if (index != -1) {
+        final targetOffset = index * 80.0;
+        final maxScroll = _scrollController.position.maxScrollExtent;
+        final clampOffset = targetOffset.clamp(0.0, maxScroll);
+        _scrollController.animateTo(
+          clampOffset,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeInOut,
+        );
+      }
+    });
+  }
+
   void _scrollToBottom({bool animate = true}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_scrollController.hasClients) return;
@@ -134,7 +159,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     _isCurrentlyTyping = false;
     _typingTimer?.cancel();
 
-    setState(() => _isSending = true);
+    final reply = _replyingTo;
+    setState(() {
+      _replyingTo = null;
+      _isSending = true;
+    });
 
     try {
       await ref.read(chatRepositoryProvider).sendMessage(
@@ -142,6 +171,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             senderId: currentUser.uid,
             receiverId: widget.otherUser.uid,
             text: text,
+            replyToMessageId: reply?.id,
+            replyToText: reply?.text,
+            replyToSenderId: reply?.senderId,
           );
       _scrollToBottom();
     } catch (e) {
@@ -162,44 +194,100 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final currentUser = ref.read(currentUserProvider).value;
     if (currentUser == null) return;
 
-    showDialog(
-      context: context,
-      builder: (BuildContext ctx) {
-        return AlertDialog(
-          title: const Text('Delete Message'),
-          content: const Text('Delete this message for you?'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text('Cancel'),
-            ),
-            TextButton(
-              onPressed: () async {
-                Navigator.of(ctx).pop();
-                try {
-                  await ref.read(chatRepositoryProvider).deleteMessageForMe(
-                        widget.chat.chatId,
-                        message.id,
-                        currentUser.uid,
-                      );
-                } catch (e) {
-                  if (!mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Failed to delete message: $e'),
-                      backgroundColor: Theme.of(context).colorScheme.error,
-                    ),
-                  );
-                }
-              },
-              child: const Text(
-                'Delete',
-                style: TextStyle(color: Colors.red),
+    final isMine = message.senderId == currentUser.uid;
+
+    if (isMine) {
+      showDialog(
+        context: context,
+        builder: (BuildContext ctx) {
+          return AlertDialog(
+            title: const Text('Delete Message'),
+            content: const Text('Delete this message for:'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('Cancel'),
               ),
-            ),
-          ],
-        );
-      },
+              TextButton(
+                onPressed: () async {
+                  Navigator.of(ctx).pop();
+                  try {
+                    await ref.read(chatRepositoryProvider).deleteMessageForMe(
+                          widget.chat.chatId,
+                          message.id,
+                          currentUser.uid,
+                        );
+                  } catch (e) {
+                    _showErrorSnackBar(e.toString());
+                  }
+                },
+                child: const Text('Delete for me'),
+              ),
+              TextButton(
+                onPressed: () async {
+                  Navigator.of(ctx).pop();
+                  try {
+                    await ref.read(chatRepositoryProvider).deleteMessageForEveryone(
+                          widget.chat.chatId,
+                          message.id,
+                        );
+                  } catch (e) {
+                    _showErrorSnackBar(e.toString());
+                  }
+                },
+                child: const Text(
+                  'Delete for everyone',
+                  style: TextStyle(color: Colors.red),
+                ),
+              ),
+            ],
+          );
+        },
+      );
+    } else {
+      showDialog(
+        context: context,
+        builder: (BuildContext ctx) {
+          return AlertDialog(
+            title: const Text('Delete Message'),
+            content: const Text('Delete this message for you?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () async {
+                  Navigator.of(ctx).pop();
+                  try {
+                    await ref.read(chatRepositoryProvider).deleteMessageForMe(
+                          widget.chat.chatId,
+                          message.id,
+                          currentUser.uid,
+                        );
+                  } catch (e) {
+                    _showErrorSnackBar(e.toString());
+                  }
+                },
+                child: const Text(
+                  'Delete',
+                  style: TextStyle(color: Colors.red),
+                ),
+              ),
+            ],
+          );
+        },
+      );
+    }
+  }
+
+  void _showErrorSnackBar(String error) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Failed to delete message: $error'),
+        backgroundColor: Theme.of(context).colorScheme.error,
+      ),
     );
   }
 
@@ -301,8 +389,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     return _MessagesList(
                       messages: messages,
                       currentUid: currentUser.uid,
+                      otherUserDisplayName: widget.otherUser.displayName,
                       scrollController: _scrollController,
                       onDeleteMessage: _confirmDeleteMessage,
+                      onReplyMessage: _onReplyMessage,
+                      onReplyTap: _onReplyTap,
                     );
                   },
                   loading: () => const LoadingWidget(message: 'Loading messages...'),
@@ -319,6 +410,66 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               error: (_, _) => const SizedBox.shrink(),
             ),
           ),
+
+          // Reply indicator banner above input bar
+          if (_replyingTo != null)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1E212D),
+                border: Border(
+                  left: BorderSide(
+                    color: colorScheme.primary,
+                    width: 4,
+                  ),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.reply_rounded,
+                    color: colorScheme.primary,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _replyingTo!.senderId == currentUserAsync.value?.uid
+                              ? 'Replying to yourself'
+                              : 'Replying to ${widget.otherUser.displayName}',
+                          style: TextStyle(
+                            color: colorScheme.primary,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          _replyingTo!.text,
+                          style: TextStyle(
+                            color: colorScheme.onSurface.withValues(alpha: 0.6),
+                            fontSize: 13,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close_rounded, size: 18),
+                    onPressed: () {
+                      setState(() {
+                        _replyingTo = null;
+                      });
+                    },
+                  ),
+                ],
+              ),
+            ),
 
           // Input area
           _MessageInputBar(
@@ -376,18 +527,23 @@ class _ChatAvatar extends StatelessWidget {
     );
   }
 }
-
 class _MessagesList extends StatelessWidget {
   final List<MessageModel> messages;
   final String currentUid;
+  final String otherUserDisplayName;
   final ScrollController scrollController;
   final void Function(MessageModel) onDeleteMessage;
+  final void Function(MessageModel) onReplyMessage;
+  final void Function(String) onReplyTap;
 
   const _MessagesList({
     required this.messages,
     required this.currentUid,
+    required this.otherUserDisplayName,
     required this.scrollController,
     required this.onDeleteMessage,
+    required this.onReplyMessage,
+    required this.onReplyTap,
   });
 
   @override
@@ -407,11 +563,33 @@ class _MessagesList extends StatelessWidget {
         return Column(
           children: [
             if (showDate) _DateSeparator(date: msg.timestamp),
-            MessageBubble(
-              text: msg.text,
-              timestamp: msg.timestamp,
-              isSentByMe: isMine,
-              onLongPress: () => onDeleteMessage(msg),
+            Dismissible(
+              key: ValueKey(msg.id),
+              direction: msg.isDeletedForEveryone ? DismissDirection.none : DismissDirection.startToEnd,
+              background: Container(
+                alignment: Alignment.centerLeft,
+                padding: const EdgeInsets.only(left: 20),
+                child: const Icon(
+                  Icons.reply_rounded,
+                  color: Color(0xFF00BFA5),
+                ),
+              ),
+              confirmDismiss: (direction) async {
+                onReplyMessage(msg);
+                return false; // Prevents actual dismissal
+              },
+              child: MessageBubble(
+                text: msg.text,
+                timestamp: msg.timestamp,
+                isSentByMe: isMine,
+                onLongPress: () => onDeleteMessage(msg),
+                isDeletedForEveryone: msg.isDeletedForEveryone,
+                replyText: msg.replyToText,
+                replySenderName: msg.replyToSenderId != null
+                    ? (msg.replyToSenderId == currentUid ? 'You' : otherUserDisplayName)
+                    : null,
+                onReplyTap: () => onReplyTap(msg.replyToMessageId!),
+              ),
             ),
           ],
         );

@@ -25,6 +25,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   bool _isCreatingChat = false;
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(notificationServiceProvider).initialize();
+    });
+  }
+
+  @override
   void dispose() {
     _searchController.dispose();
     super.dispose();
@@ -119,6 +127,97 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
+  void _onChatLongPress(ChatModel chat) {
+    final currentUser = ref.read(currentUserProvider).value;
+    if (currentUser == null) return;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF161823), // match existing dark theme
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 8),
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.white24,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 16),
+              ListTile(
+                leading: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent),
+                title: const Text(
+                  'Delete Chat',
+                  style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.w600),
+                ),
+                onTap: () {
+                  Navigator.pop(context); // Close bottom sheet
+                  _confirmDeleteChat(chat);
+                },
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _confirmDeleteChat(ChatModel chat) {
+    final currentUser = ref.read(currentUserProvider).value;
+    if (currentUser == null) return;
+
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Delete Chat'),
+          content: const Text('Delete this conversation and all messages for you?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () async {
+                Navigator.pop(dialogContext); // Close dialog
+                try {
+                  await ref.read(chatRepositoryProvider).deleteChatForMe(
+                        chat.chatId,
+                        currentUser.uid,
+                      );
+                  if (!mounted) return;
+                  scaffoldMessenger.showSnackBar(
+                    const SnackBar(content: Text('Chat deleted successfully')),
+                  );
+                } catch (e) {
+                  if (!mounted) return;
+                  scaffoldMessenger.showSnackBar(
+                    SnackBar(content: Text('Failed to delete chat: $e')),
+                  );
+                }
+              },
+              style: TextButton.styleFrom(
+                foregroundColor: Colors.redAccent,
+              ),
+              child: const Text('Delete'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
@@ -151,6 +250,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             icon: const Icon(Icons.logout_rounded),
             tooltip: 'Sign out',
             onPressed: () async {
+              await ref.read(notificationServiceProvider).deleteTokenFromDatabase();
               await ref.read(authRepositoryProvider).signOut();
             },
           ),
@@ -266,6 +366,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 return _ChatsList(
                   chats: chats,
                   onTap: _openChatFromTile,
+                  onLongPress: _onChatLongPress,
                 );
               },
               loading: () => const LoadingWidget(message: 'Loading chats...'),
@@ -400,8 +501,13 @@ class _UserAvatar extends StatelessWidget {
 class _ChatsList extends ConsumerWidget {
   final List<ChatModel> chats;
   final void Function(ChatModel) onTap;
+  final void Function(ChatModel) onLongPress;
 
-  const _ChatsList({required this.chats, required this.onTap});
+  const _ChatsList({
+    required this.chats,
+    required this.onTap,
+    required this.onLongPress,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -424,6 +530,7 @@ class _ChatsList extends ConsumerWidget {
               chat: chat,
               otherUid: otherUid,
               onTap: () => onTap(chat),
+              onLongPress: () => onLongPress(chat),
             );
           },
         );
@@ -438,11 +545,13 @@ class _ChatTileLoader extends ConsumerWidget {
   final ChatModel chat;
   final String otherUid;
   final VoidCallback onTap;
+  final VoidCallback? onLongPress;
 
   const _ChatTileLoader({
     required this.chat,
     required this.otherUid,
     required this.onTap,
+    this.onLongPress,
   });
 
   @override
@@ -462,6 +571,7 @@ class _ChatTileLoader extends ConsumerWidget {
           otherUser: otherUser,
           currentUid: currentUid,
           onTap: onTap,
+          onLongPress: onLongPress,
         );
       },
       loading: () => const SizedBox(height: 72),

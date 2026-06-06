@@ -9,6 +9,7 @@ class ChatTile extends StatelessWidget {
   final UserModel otherUser;
   final String currentUid;
   final VoidCallback onTap;
+  final VoidCallback? onLongPress;
 
   const ChatTile({
     super.key,
@@ -16,6 +17,7 @@ class ChatTile extends StatelessWidget {
     required this.otherUser,
     required this.currentUid,
     required this.onTap,
+    this.onLongPress,
   });
 
   @override
@@ -30,6 +32,7 @@ class ChatTile extends StatelessWidget {
 
     return InkWell(
       onTap: onTap,
+      onLongPress: onLongPress,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         child: Row(
