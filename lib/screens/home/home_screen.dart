@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../core/theme/app_theme.dart';
 import '../../models/chat_model.dart';
 import '../../models/user_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/chat_provider.dart';
 import '../../providers/user_provider.dart';
 import '../../widgets/chat_tile.dart';
+import '../../widgets/home_header.dart';
 import '../../widgets/loading_widget.dart';
 import '../chat/chat_screen.dart';
 
@@ -221,51 +223,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final currentUserAsync = ref.watch(currentUserProvider);
     final chatsAsync = ref.watch(chatsStreamProvider);
 
     return Scaffold(
       appBar: PreferredSize(
           preferredSize: const Size.fromHeight(80),
-          child: HomeHeader(
-            onLogout: () async {
-              await ref.read(notificationServiceProvider).deleteTokenFromDatabase();
-              await ref.read(authRepositoryProvider).signOut();
-            },
-            onProfileTap: () {}, // placeholder – existing profile action can be added later
+          child: SafeArea(
+            child: HomeHeader(
+              onLogout: () async {
+                await ref.read(notificationServiceProvider).deleteTokenFromDatabase();
+                await ref.read(authRepositoryProvider).signOut();
+              },
+              onProfileTap: () {}, // placeholder – existing profile action can be added later
+            ),
           ),
         ),
-        title: currentUserAsync.when(
-          data: (user) => Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('Messages'),
-              if (user != null)
-                Text(
-                  '@${user.userId}',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: colorScheme.primary,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-            ],
-          ),
-          loading: () => const Text('Messages'),
-          error: (_, _) => const Text('Messages'),
-        ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout_rounded),
-            tooltip: 'Sign out',
-            onPressed: () async {
-              await ref.read(notificationServiceProvider).deleteTokenFromDatabase();
-              await ref.read(authRepositoryProvider).signOut();
-            },
-          ),
-          const SizedBox(width: 4),
-        ],
-      ),
       body: Column(
         children: [
           // Search bar
@@ -310,45 +282,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
                               color: AppTheme.primaryColor,
-                            ),
-                          )
-                        : const Text('Search'),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _searchController,
-                    textInputAction: TextInputAction.search,
-                    onSubmitted: (_) => _search(),
-                    decoration: const InputDecoration(
-                      hintText: 'Search by user ID...',
-                      prefixIcon: Icon(Icons.search),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  child: ElevatedButton(
-                    onPressed: _isSearching ? null : _search,
-                    style: ElevatedButton.styleFrom(
-                      minimumSize: const Size(60, 52),
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                    ),
-                    child: _isSearching
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.black,
                             ),
                           )
                         : const Text('Search'),
