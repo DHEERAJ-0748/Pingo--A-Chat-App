@@ -1,5 +1,4 @@
-import 'dart:convert';
-import 'package:http/http.dart' as http;
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/chat_model.dart';
 import '../models/message_model.dart';
@@ -246,45 +245,4 @@ class ChatRepository {
     });
   }
 
-  /// Sends a push notification to FCM device-to-device via HTTP post.
-  Future<void> _sendPushNotification({
-    required String fcmToken,
-    required String senderName,
-    required String text,
-    required String chatId,
-    required String senderId,
-  }) async {
-    if (fcmToken.isEmpty) return;
-    if (FirestoreConstants.fcmServerKey == 'YOUR_FCM_SERVER_KEY') {
-      print('FCM Server Key is not configured. Skipping push notification.');
-      return;
-    }
-
-    try {
-      final response = await http.post(
-        Uri.parse('https://fcm.googleapis.com/fcm/send'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'key=${FirestoreConstants.fcmServerKey}',
-        },
-        body: jsonEncode({
-          'to': fcmToken,
-          'notification': {
-            'title': senderName,
-            'body': text,
-            'sound': 'default',
-          },
-          'data': {
-            'click_action': 'FLUTTER_NOTIFICATION_CLICK',
-            'chatId': chatId,
-            'otherUserUid': senderId,
-          },
-          'priority': 'high',
-        }),
-      );
-      print('FCM notification request status: ${response.statusCode}');
-    } catch (e) {
-      print('Error sending FCM notification: $e');
-    }
-  }
 }

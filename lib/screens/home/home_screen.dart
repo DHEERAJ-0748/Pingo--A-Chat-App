@@ -225,7 +225,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final chatsAsync = ref.watch(chatsStreamProvider);
 
     return Scaffold(
-      appBar: AppBar(
+      appBar: PreferredSize(
+          preferredSize: const Size.fromHeight(80),
+          child: HomeHeader(
+            onLogout: () async {
+              await ref.read(notificationServiceProvider).deleteTokenFromDatabase();
+              await ref.read(authRepositoryProvider).signOut();
+            },
+            onProfileTap: () {}, // placeholder – existing profile action can be added later
+          ),
+        ),
         title: currentUserAsync.when(
           data: (user) => Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -260,6 +269,55 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       body: Column(
         children: [
           // Search bar
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _searchController,
+                    textInputAction: TextInputAction.search,
+                    onSubmitted: (_) => _search(),
+                    decoration: InputDecoration(
+                      hintText: 'Find your conversations...',
+                      prefixIcon: const Icon(Icons.search, color: AppTheme.primaryColor),
+                      // Rounded container with mint accent when focused (handled by theme)
+                      filled: true,
+                      fillColor: AppTheme.surfaceVariantDark,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(24),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  child: ElevatedButton(
+                    onPressed: _isSearching ? null : _search,
+                    style: ElevatedButton.styleFrom(
+                      minimumSize: const Size(60, 52),
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(24),
+                      ),
+                    ),
+                    child: _isSearching
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: AppTheme.primaryColor,
+                            ),
+                          )
+                        : const Text('Search'),
+                  ),
+                ),
+              ],
+            ),
+          ),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
             child: Row(
