@@ -251,9 +251,8 @@ class ChatRepository {
         return;
       }
 
-      final url = Uri.parse(
-        '${FirestoreConstants.notificationWorkerUrl.replaceAll(RegExp(r'/+$'), '')}/send-notification',
-      );
+      final trimmedUrl = FirestoreConstants.notificationWorkerUrl.trim().replaceAll(RegExp(r'/+$'), '');
+      final url = Uri.parse('$trimmedUrl/send-notification');
 
       final response = await http.post(
         url,

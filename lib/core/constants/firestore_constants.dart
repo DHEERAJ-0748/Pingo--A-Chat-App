@@ -35,5 +35,5 @@ class FirestoreConstants {
   static const String deletedAt = 'deletedAt';
 
   // Cloudflare Worker URL for push notifications
-  static const String notificationWorkerUrl = ' https://pingo-notification-worker.dheerajsribashyam.workers.dev';
+  static const String notificationWorkerUrl = 'https://pingo-notification-worker.dheerajsribashyam.workers.dev';
 }

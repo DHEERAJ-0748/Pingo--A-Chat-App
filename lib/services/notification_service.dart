@@ -1,17 +1,28 @@
 import 'dart:convert';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../firebase_options.dart';
 import '../main.dart';
 import '../providers/auth_provider.dart';
 import '../providers/user_provider.dart';
 import '../providers/chat_provider.dart';
 import '../screens/chat/chat_screen.dart';
 
+/// Top-level background message handler.
+/// Must be a top-level function (not a class method) with @pragma('vm:entry-point')
+/// for Firebase to invoke it when the app is terminated or in the background.
 @pragma('vm:entry-point')
-Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  // Ensure Firebase is initialized — required when the app is terminated
+  // and the background isolate starts fresh.
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
   print('Handling background message: ${message.messageId}');
 }
 
@@ -19,6 +30,9 @@ class NotificationService {
   final Ref _ref;
   final FirebaseMessaging _messaging = FirebaseMessaging.instance;
   final FlutterLocalNotificationsPlugin _localNotifications = FlutterLocalNotificationsPlugin();
+
+  /// Guard to prevent registering stream listeners multiple times.
+  bool _listenersRegistered = false;
 
   NotificationService(this._ref);
 
@@ -37,7 +51,7 @@ class NotificationService {
         ?.requestNotificationsPermission();
 
     // 2. Configure background messaging handler
-    FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+    FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
     // 3. Configure local notifications for foreground display
     const AndroidInitializationSettings initAndroid = AndroidInitializationSettings('@mipmap/ic_launcher');
@@ -74,21 +88,34 @@ class NotificationService {
         ?.createNotificationChannel(channel);
 
     // 4. Set FCM foreground presentation options
+    // Avoid double notifications on Android: local notifications handle foreground display.
     await _messaging.setForegroundNotificationPresentationOptions(
-      alert: true,
+      alert: false,
       badge: true,
-      sound: true,
+      sound: false,
     );
 
-    // 5. Setup message listeners
+    // 5. Always save current FCM token for signed-in user
+    await saveTokenToDatabase();
+
+    // Guard stream listeners against multiple registrations
+    if (_listenersRegistered) return;
+    _listenersRegistered = true;
+
+    // 6. Listen for auth changes to ensure FCM token is saved whenever user signs in
+    FirebaseAuth.instance.authStateChanges().listen((user) async {
+      if (user != null) {
+        await saveTokenToDatabase();
+      }
+    });
+
+    // 7. Setup message listeners
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
       print('Received foreground message: ${message.messageId}');
       
       final notification = message.notification;
       final data = message.data;
 
-      // Don't show notification if the user is already viewing this chat screen
-      // (We can check the currently active route or let local notifications handle it)
       if (notification != null) {
         _localNotifications.show(
           notification.hashCode,
@@ -115,25 +142,33 @@ class NotificationService {
       _handleNavigation(message.data);
     });
 
-    // 6. Check if app was opened from closed state via notification click
+    // 8. Check if app was opened from closed state via notification click
     final initialMessage = await _messaging.getInitialMessage();
     if (initialMessage != null) {
       print('App opened from closed state notification click: ${initialMessage.messageId}');
-      // Delayed slightly to allow navigatorKey to be ready and attached
       Future.delayed(const Duration(milliseconds: 800), () {
         _handleNavigation(initialMessage.data);
       });
     }
 
-    // 7. Save initial token and subscribe to token refreshes
-    await saveTokenToDatabase();
+    // 9. Subscribe to token refreshes
     _messaging.onTokenRefresh.listen((token) async {
       print('FCM Token refreshed: $token');
-      final currentUser = await _ref.read(currentUserProvider.future);
-      if (currentUser != null) {
-        await _ref.read(userRepositoryProvider).updateFcmToken(currentUser.uid, token);
+      final currentUid = _getCurrentUid();
+      if (currentUid != null) {
+        await _ref.read(userRepositoryProvider).updateFcmToken(currentUid, token);
+      } else {
+        final currentUser = await _ref.read(currentUserProvider.future);
+        if (currentUser != null) {
+          await _ref.read(userRepositoryProvider).updateFcmToken(currentUser.uid, token);
+        }
       }
     });
+  }
+
+  /// Helper to get current user's UID directly from FirebaseAuth without race condition.
+  String? _getCurrentUid() {
+    return FirebaseAuth.instance.currentUser?.uid;
   }
 
   /// Fetches the current FCM token and writes it to Firestore.
@@ -142,9 +177,18 @@ class NotificationService {
       final token = await _messaging.getToken();
       print('FCM Token retrieved: $token');
       if (token != null) {
+        final uid = _getCurrentUid();
+        if (uid != null) {
+          await _ref.read(userRepositoryProvider).updateFcmToken(uid, token);
+          print('FCM Token successfully saved to Firestore for UID: $uid');
+          return;
+        }
+
+        // Fallback to provider if auth instance hasn't updated
         final currentUser = await _ref.read(currentUserProvider.future);
         if (currentUser != null) {
           await _ref.read(userRepositoryProvider).updateFcmToken(currentUser.uid, token);
+          print('FCM Token successfully saved to Firestore for UID: ${currentUser.uid}');
         }
       }
     } catch (e) {
@@ -155,10 +199,16 @@ class NotificationService {
   /// Removes FCM token from database (e.g. on logout).
   Future<void> deleteTokenFromDatabase() async {
     try {
-      final currentUser = await _ref.read(currentUserProvider.future);
-      if (currentUser != null) {
-        await _ref.read(userRepositoryProvider).updateFcmToken(currentUser.uid, null);
+      final uid = _getCurrentUid();
+      if (uid != null) {
+        await _ref.read(userRepositoryProvider).updateFcmToken(uid, null);
+      } else {
+        final currentUser = await _ref.read(currentUserProvider.future);
+        if (currentUser != null) {
+          await _ref.read(userRepositoryProvider).updateFcmToken(currentUser.uid, null);
+        }
       }
+      print('FCM Token cleared from database');
     } catch (e) {
       print('Error clearing FCM token from database: $e');
     }
@@ -174,9 +224,8 @@ class NotificationService {
       return;
     }
 
-    // We need to retrieve the current user
-    final currentUser = await _ref.read(currentUserProvider.future);
-    if (currentUser == null) return;
+    final currentUid = _getCurrentUid();
+    if (currentUid == null) return;
 
     try {
       // 1. Fetch other user model
@@ -185,7 +234,7 @@ class NotificationService {
 
       // 2. Fetch or create chat model
       final chat = await _ref.read(chatRepositoryProvider).getOrCreateChat(
-            currentUser.uid,
+            currentUid,
             otherUser.uid,
           );
 
