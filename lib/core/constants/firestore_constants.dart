@@ -34,6 +34,6 @@ class FirestoreConstants {
   static const String isDeletedForEveryone = 'isDeletedForEveryone';
   static const String deletedAt = 'deletedAt';
 
-  // FCM Server Key (obtained from Firebase Console -> Project Settings -> Cloud Messaging)
-  static const String fcmServerKey = 'YOUR_FCM_SERVER_KEY';
+  // Cloudflare Worker URL for push notifications
+  static const String notificationWorkerUrl = ' https://pingo-notification-worker.dheerajsribashyam.workers.dev';
 }

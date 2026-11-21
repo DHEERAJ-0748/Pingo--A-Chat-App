@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../models/chat_model.dart';
 import '../models/message_model.dart';
 import '../services/firestore_service.dart';
@@ -130,26 +131,11 @@ class ChatRepository {
 
     await batch.commit();
 
-    // Trigger async push notification sending
-    _firestoreService.getDoc(FirestoreConstants.usersCollection, receiverId).then((receiverDoc) {
-      if (receiverDoc == null) return;
-      final token = receiverDoc[FirestoreConstants.fcmToken] as String?;
-      if (token == null || token.isEmpty) return;
-
-      _firestoreService.getDoc(FirestoreConstants.usersCollection, senderId).then((senderDoc) {
-        final senderName = senderDoc != null
-            ? (senderDoc[FirestoreConstants.displayName] as String? ?? 'New Message')
-            : 'New Message';
-
-        _sendPushNotification(
-          fcmToken: token,
-          senderName: senderName,
-          text: text.trim(),
-          chatId: chatId,
-          senderId: senderId,
-        );
-      });
-    });
+    // Trigger async push notification via Cloudflare Worker
+    _sendPushNotificationViaWorker(
+      chatId: chatId,
+      messageId: messageRef.id,
+    );
   }
 
   /// Marks all unread messages in [chatId] sent to [userId] as read
@@ -246,45 +232,60 @@ class ChatRepository {
     });
   }
 
-  /// Sends a push notification to FCM device-to-device via HTTP post.
-  Future<void> _sendPushNotification({
-    required String fcmToken,
-    required String senderName,
-    required String text,
+  /// Sends a push notification via the Cloudflare Worker.
+  /// Fire-and-forget: errors are logged but do not affect message delivery.
+  void _sendPushNotificationViaWorker({
     required String chatId,
-    required String senderId,
+    required String messageId,
   }) async {
-    if (fcmToken.isEmpty) return;
-    if (FirestoreConstants.fcmServerKey == 'YOUR_FCM_SERVER_KEY') {
-      print('FCM Server Key is not configured. Skipping push notification.');
+    if (FirestoreConstants.notificationWorkerUrl == 'WORKER_URL_PLACEHOLDER' ||
+        FirestoreConstants.notificationWorkerUrl.isEmpty) {
+      print('Cloudflare Worker URL is not configured. Skipping push notification.');
       return;
     }
 
     try {
+      final idToken = await _getIdToken();
+      if (idToken == null) {
+        print('No Firebase ID token available. Skipping push notification.');
+        return;
+      }
+
+      final url = Uri.parse(
+        '${FirestoreConstants.notificationWorkerUrl.replaceAll(RegExp(r'/+$'), '')}/send-notification',
+      );
+
       final response = await http.post(
-        Uri.parse('https://fcm.googleapis.com/fcm/send'),
+        url,
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'key=${FirestoreConstants.fcmServerKey}',
+          'Authorization': 'Bearer $idToken',
         },
         body: jsonEncode({
-          'to': fcmToken,
-          'notification': {
-            'title': senderName,
-            'body': text,
-            'sound': 'default',
-          },
-          'data': {
-            'click_action': 'FLUTTER_NOTIFICATION_CLICK',
-            'chatId': chatId,
-            'otherUserUid': senderId,
-          },
-          'priority': 'high',
+          'chatId': chatId,
+          'messageId': messageId,
         }),
       );
-      print('FCM notification request status: ${response.statusCode}');
+
+      if (response.statusCode == 200) {
+        print('Push notification sent successfully via worker: ${response.body}');
+      } else {
+        print('Worker notification failed: ${response.statusCode} ${response.body}');
+      }
     } catch (e) {
-      print('Error sending FCM notification: $e');
+      print('Error sending push notification via worker: $e');
+    }
+  }
+
+  /// Gets the current user's Firebase ID token.
+  Future<String?> _getIdToken() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return null;
+      return await user.getIdToken();
+    } catch (e) {
+      print('Error getting ID token: $e');
+      return null;
     }
   }
 }
